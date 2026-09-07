@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Derby Poker — Drag & Drop</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:linear-gradient(145deg,#08743d,#0b9a55 45%,#075c36);color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh;overflow:hidden;touch-action:none}
+.game{height:100vh;max-width:520px;margin:auto;position:relative;display:flex;flex-direction:column}
+.topbar{height:58px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;background:#063f28cc}
+.title{font-weight:900;font-size:17px}.bank{font-weight:800;background:#0a2b20;padding:7px 11px;border-radius:9px}
+.opponents{padding:7px 10px;display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.player{background:#063d29aa;border:1px solid #ffffff22;border-radius:12px;padding:5px;text-align:center;font-size:11px}
+.avatar{font-size:22px}.chips{font-weight:800;color:#ffd84d}
+.table{flex:1;position:relative;padding:4px 10px;display:flex;flex-direction:column;justify-content:center;gap:8px}
+.center{text-align:center;font-size:12px;font-weight:800;opacity:.9}
+.board{background:#064a2dbb;border:1px solid #8ff0ba44;border-radius:16px;padding:8px}
+.row{display:grid;grid-template-columns:34px repeat(3,1fr);gap:5px;align-items:center;margin:4px 0}
+.rowname{font-size:11px;font-weight:900;text-align:center}
+.slot{height:59px;border:1px dashed #c5f5d155;border-radius:7px;background:#ffffff0b;display:flex;align-items:center;justify-content:center;position:relative}
+.slot.over{background:#ffd83d33;border-color:#ffd83d}
+.mini-card{width:42px;height:54px;border-radius:5px;background:#fff;color:#111;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:900;box-shadow:0 2px 5px #0006}
+.card.red,.mini-card.red{color:#d12626}.card.black,.mini-card.black{color:#111}
+.scoretag{position:absolute;right:3px;bottom:2px;font-size:8px;background:#111b;padding:2px 4px;border-radius:4px}
+.handbox{background:#073d2aee;border-top:1px solid #ffffff25;padding:8px 8px max(10px,env(safe-area-inset-bottom));border-radius:18px 18px 0 0}
+.handtitle{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:800;margin-bottom:6px}
+.hand{display:flex;justify-content:center;gap:3px;min-height:84px}
+.card{width:42px;height:68px;border-radius:6px;background:#fff;color:#111;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;box-shadow:0 3px 7px #0007;user-select:none;cursor:grab;position:relative}
+.card.dragging{opacity:.35;transform:translateY(-10px) scale(1.05)}
+.card.discarded{outline:3px solid #ffbd3d}
+.joker{font-size:13px!important;line-height:1.1;text-align:center}.redjoker{background:linear-gradient(#fff,#ffeaea)}.blackjoker{background:linear-gradient(#fff,#e9edf2)}
+.actions{display:flex;gap:7px;margin-top:7px}
+button{flex:1;border:0;border-radius:10px;padding:10px 8px;font-weight:900;color:white;background:#176cff}
+button.secondary{background:#34404a}.ready{background:#f6c928;color:#132116}
+.status{font-size:11px;text-align:center;margin-top:5px;min-height:15px}
+.good{color:#6dffb1}.bad{color:#ff8585}
+.modal{position:absolute;inset:0;background:#0009;display:none;align-items:flex-end;z-index:20}
+.modal.show{display:flex}.sheet{width:100%;background:#14201b;border-radius:20px 20px 0 0;padding:18px;max-height:72vh;overflow:auto}
+.sheet h2{margin:0 0 12px}.resultrow{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #ffffff15}
+.big{font-size:25px;font-weight:900}
+.hint{opacity:.72}
+</style>
+</head>
+<body>
+<div class="game" id="game">
+  <div class="topbar"><div class="title">🎴 DERBY CARD GAME</div><div class="bank">เดิมพัน 1,000</div></div>
+  <div class="opponents" id="opponents"></div>
+  <div class="table">
+    <div class="center">ลากไพ่ของคุณไปจัด 3–3–3 และทิ้ง 1 ใบ</div>
+    <div class="board" id="board"></div>
+  </div>
+  <div class="handbox">
+    <div class="handtitle"><span>ไพ่ของคุณ • A</span><span id="count">10 ใบ</span></div>
+    <div class="hand" id="hand"></div>
+    <div class="actions">
+      <button class="secondary" onclick="newRound()">🔄 แจกใหม่</button>
+      <button class="ready" onclick="confirmHand()">READY</button>
+    </div>
+    <div class="status" id="status">แตะแล้วลากไพ่ไปยังแถวที่ต้องการ</div>
+  </div>
+  <div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
+</div>
+<script>
+const SUITS=["♣","♦","♥","♠"], RANKS=["2","3","4","5","6","7","8","9","10","J","Q","K","A"];
+const rankVal={2:2,3:3,4:4,5:5,6:6,7:7,8:8,9:9,10:10,J:11,Q:12,K:13,A:14};
+let deck=[], hand=[], zones={bottom:[],middle:[],head:[],discard:[]}, drag=null;
+
+function makeDeck(){
+  const d=[];
+  for(const s of SUITS) for(const r of RANKS) d.push({r,s,id:r+s});
+  for(let i=0;i<4;i++) d.push({r:"Joker",s:"red",id:"JR"+i});
+  for(let i=0;i<4;i++) d.push({r:"Joker",s:"black",id:"JB"+i});
+  return d;
+}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}}
+function newRound(){
+  deck=makeDeck();shuffle(deck);hand=deck.splice(0,10);zones={bottom:[],middle:[],head:[],discard:[]};closeModal();render();
+}
+function label(c){return c.r==="Joker"?(c.s==="red"?"🃏R":"🃏B"):c.r+c.s}
+function red(c){return c.s==="red"||c.s==="♦"||c.s==="♥"}
+function cardHTML(c,mini=false){
+  const cl=mini?"mini-card":"card";
+  return `<div class="${cl} ${red(c)?"red":"black"} ${c.r==="Joker"?"joker "+(c.s==="red"?"redjoker":"blackjoker"):""}" data-id="${c.id}">${label(c)}</div>`;
+}
+function renderOpponents(){
+  const names=["B","C","D"], av=["🃏","😎","🤡"];
+  document.getElementById("opponents").innerHTML=names.map((n,i)=>`<div class="player"><div class="avatar">${av[i]}</div><b>${n}</b><div class="chips">${[20000,12500,18000][i].toLocaleString()}</div><div>พร้อม</div></div>`).join("");
+}
+function render(){
+  renderOpponents();
+  document.getElementById("count").textContent=(hand.length+zones.bottom.length+zones.middle.length+zones.head.length+zones.discard.length)+" ใบ";
+  document.getElementById("hand").innerHTML=hand.map(c=>cardHTML(c)).join("");
+  const rows=[["head","🔺 หัว"],["middle","◼️ กลาง"],["bottom","🔻 ล่าง"]];
+  document.getElementById("board").innerHTML=rows.map(([z,n])=>{
+    const val=zones[z].length===3?best(zones[z]):null;
+    return `<div class="row"><div class="rowname">${n}</div>${[0,1,2].map(i=>`<div class="slot" data-zone="${z}" data-index="${i}">${zones[z][i]?cardHTML(zones[z][i],true):""}${i===2&&val?`<span class="scoretag">${val.name} • ${val.pts}</span>`:""}</div>`).join("")}</div>`
+  }).join("")+
+  `<div class="row"><div class="rowname">🗑️</div><div class="slot" style="grid-column:span 3" data-zone="discard">${zones.discard[0]?cardHTML(zones.discard[0],true):"ทิ้ง 1 ใบ"}</div></div>`;
+  bindDrag();
+  updateStatus();
+}
+function allZones(){return ["bottom","middle","head","discard"]}
+function findCard(id){
+  const h=hand.find(c=>c.id===id);if(h)return ["hand",-1,h];
+  for(const z of allZones()){const i=zones[z].findIndex(c=>c.id===id);if(i>=0)return [z,i,zones[z][i]]}
+}
+function removeCard(id){
+  const f=findCard(id); if(!f)return null;
+  if(f[0]==="hand") hand.splice(f[1]+1,0); // no-op; handled below
+  if(f[0]==="hand"){const i=hand.findIndex(c=>c.id===id);return hand.splice(i,1)[0]}
+  return zones[f[0]].splice(f[1],1)[0];
+}
+function addToZone(c,z,index=99){
+  if(z==="hand"){hand.push(c);return}
+  if(z==="discard"){zones.discard=[c];return}
+  if(zones[z].length>=3)return false;
+  if(index<zones[z].length) zones[z].splice(index,0,c); else zones[z].push(c);
+  return true;
+}
+function bindDrag(){
+  document.querySelectorAll(".card,.mini-card").forEach(el=>{
+    el.addEventListener("pointerdown",startDrag);
+  });
+  document.querySelectorAll(".slot").forEach(el=>{
+    el.addEventListener("pointerenter",()=>el.classList.add("over"));
+    el.addEventListener("pointerleave",()=>el.classList.remove("over"));
+    el.addEventListener("pointerup",dropOn);
+  });
+}
+function startDrag(e){
+  e.preventDefault(); const id=e.currentTarget.dataset.id;
+  drag={id,startX:e.clientX,startY:e.clientY};
+  e.currentTarget.classList.add("dragging");
+  document.addEventListener("pointermove",dragMove,{passive:false});
+  document.addEventListener("pointerup",endDrag,{once:true});
+}
+function dragMove(e){e.preventDefault();const el=document.querySelector(`[data-id="${drag.id}"]`);if(el){el.style.transform=`translate(${e.clientX-drag.startX}px,${e.clientY-drag.startY-8}px) scale(1.05)`}}
+function endDrag(){document.removeEventListener("pointermove",dragMove);document.querySelectorAll(".dragging").forEach(x=>{x.classList.remove("dragging");x.style.transform=""});drag=null;document.querySelectorAll(".over").forEach(x=>x.classList.remove("over"))}
+function dropOn(e){
+  e.preventDefault(); if(!drag)return;
+  const target=e.currentTarget, z=target.dataset.zone, idx=Number(target.dataset.index??99);
+  const f=findCard(drag.id); if(!f)return;
+  if(z!=="discard"&&z!=="hand"&&zones[z].length>=3&&!zones[z].some(c=>c.id===drag.id)){setStatus("แถวนี้เต็ม 3 ใบ","bad");return}
+  const c=removeCard(drag.id);
+  if(z==="hand"){hand.push(c)}
+  else if(z==="discard"){zones.discard=[c]}
+  else {
+    const existingIndex=zones[z].findIndex(x=>x.id===c.id);
+    if(existingIndex<0) addToZone(c,z,idx);
+  }
+  render();
+}
+function setStatus(t,c=""){const s=document.getElementById("status");s.textContent=t;s.className="status "+c}
+function updateStatus(){
+  const n=hand.length,z=zones.bottom.length+zones.middle.length+zones.head.length+zones.discard.length;
+  if(n===1)setStatus("เหลือไพ่ในมือ 1 ใบ — ลากไปทิ้งหรือจัดลงแถว");
+  else if(z===10)setStatus("จัดครบแล้ว กด READY เพื่อตรวจไพ่","good");
+  else setStatus("ลากไพ่ไปยัง หัว / กลาง / ล่าง / ทิ้ง");
+}
+function expandJokers(cards){
+  // For display/scoring we test joker substitutions exhaustively.
+  const js=cards.filter(c=>c.r==="Joker"), real=cards.filter(c=>c.r!=="Joker");
+  let out=[[]];
+  for(const j of js){
+    const opts=RANKS.flatMap(r=>(j.s==="red"?["♦","♥"]:["♣","♠"]).map(s=>({r,s})));
+    out=out.flatMap(a=>opts.map(o=>a.concat(o)));
+  }
+  return out.map(a=>real.concat(a));
+}
+function best(cards){
+  if(cards.length!==3)return {name:"รอ 3 ใบ",pts:0,key:[-1]};
+  let cand=[];
+  for(const x of expandJokers(cards)){
+    const vals=x.map(c=>rankVal[c.r]).sort((a,b)=>b-a), suits=x.map(c=>c.s);
+    const counts={};x.forEach(c=>counts[c.r]=(counts[c.r]||0)+1);
+    const trip=Object.values(counts).includes(3), same=suits.every(s=>s===suits[0]);
+    const seqs=[[2,3,4],[3,4,5],[4,5,6],[5,6,7],[6,7,8],[7,8,9],[8,9,10],[9,10,11],[10,11,12],[11,12,13],[12,13,14],[14,2,3],[14,12,13]];
+    let si=-1; seqs.forEach((q,i)=>{if(q.every(v=>vals.includes(v)))si=i});
+    const straight=si>=0;
+    const face=x.every(c=>["J","Q","K"].includes(c.r))&&!trip&&!straight;
+    let sum=vals.reduce((a,b)=>a+b,0)%10;
+    if(trip)cand.push({name:x.every(c=>c.r==="Joker")?"ตอง Joker":"ตอง",pts:x.every(c=>c.r==="Joker")?7:5,key:[x.every(c=>c.r==="Joker")?6:5,...vals]});
+    if(straight&&same)cand.push({name:"เรียงดอกเดียวกัน",pts:5,key:[4,si]});
+    if(straight&&!same)cand.push({name:"เรียง",pts:3,key:[3,si]});
+    if(face)cand.push({name:"หน้าฝรั่ง",pts:3,key:[2,...vals]});
+    if(same&&!straight&&!trip)cand.push({name:"แต้ม + ดอกเดียวกัน",pts:3,key:[1,...vals]});
+    if(!trip&&!straight&&!face&&!same)cand.push({name:"แต้ม",pts:1,key:[0,...vals,sum]});
+  }
+  cand.sort((a,b)=>cmp(b,a));return cand[0];
+}
+function cmp(a,b){
+  for(let i=0;i<Math.max(a.key.length,b.key.length);i++){const d=(a.key[i]||0)-(b.key[i]||0);if(d)return d}
+  return a.pts-b.pts;
+}
+function valid(){
+  if(hand.length!==1||zones.bottom.length!==3||zones.middle.length!==3||zones.head.length!==3||zones.discard.length!==1)return {ok:false,msg:"ต้องจัด 3-3-3 และทิ้ง 1 ใบให้ครบ"};
+  const b=best(zones.bottom),m=best(zones.middle),h=best(zones.head);
+  if(cmp(m,b)>0)return {ok:false,msg:"Foul: ไพ่กลางแข็งกว่าไพ่ล่าง"};
+  if(cmp(h,m)>0)return {ok:false,msg:"Foul: ไพ่หัวแข็งกว่าไพ่กลาง"};
+  return {ok:true,b,m,h};
+}
+function confirmHand(){
+  const v=valid();
+  if(!v.ok){setStatus("❌ "+v.msg,"bad");return}
+  showResult(v);
+}
+function showResult(v){
+  document.getElementById("sheet").innerHTML=`<h2>✅ READY!</h2>
+  <div class="resultrow"><span>🔻 ล่าง</span><b>${v.b.name} • ${v.b.pts} แต้ม</b></div>
+  <div class="resultrow"><span>◼️ กลาง</span><b>${v.m.name} • ${v.m.pts} แต้ม</b></div>
+  <div class="resultrow"><span>🔺 หัว</span><b>${v.h.name} • ${v.h.pts} แต้ม</b></div>
+  <p class="big">รวม ${v.b.pts+v.m.pts+v.h.pts} คะแนน</p>
+  <p class="hint">นี่คือโหมดจัดไพ่ — รอบถัดไปจะเพิ่มคู่แข่งจริง, การเปิดไพ่, Derby และเงินได้เสีย</p>
+  <button onclick="closeModal()">กลับไปแก้ไพ่</button>`;
+  document.getElementById("modal").classList.add("show");
+}
+function closeModal(){document.getElementById("modal").classList.remove("show")}
+newRound();
+</script>
+</body>
+</html>
